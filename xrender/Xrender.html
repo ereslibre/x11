@@ -1,0 +1,602 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+  <META HTTP-EQUIV="Content-Type" content="text/html; charset=UTF-8">
+  <TITLE>RENDER Extension</TITLE>
+ </HEAD>
+ <BODY>
+ 
+  <H1>Erläuterungen <TT>RENDER</TT>-Extension</H1>
+  <H2>Einleitung</H2>
+  <P>
+   Zeichnen unter Verwendung der <TT>RENDER</TT>-Extension unterscheidet
+   sich von Core X Drawing in folgender Weise (vgl. Vorlesung):
+  </P>
+  <UL>
+   <LI>
+    Gezeichnet wird nicht in ein <TT>Drawable</TT>, sondern ein
+    <TT>Picture</TT>
+   </LI>
+   <LI>
+    Kontroll-Parameter zum Zeichnen werden nicht in einer separaten
+    Datenstruktur wie <TT>GC</TT> (<TT>GraphicsContext</TT>) gehalten,
+    sondern sind Zustands-Eigenschaften der verwendeten
+    <TT>Picture</TT>-Objekte
+   </LI>
+   <LI>
+    Während Core X zahlreiche geometrische Primitiven (Linie, Kreisbögen etc.)
+    kennt, unterstützt <TT>RENDER</TT> nur: (achsenparallele) Rechtecke,
+    Dreiecke und Trapeze (deren Ober- und Unterseite zur X-Achse parallel
+    ist); komplexe Figuren müssen ggf. zerlegt werden
+   </LI>
+   <LI>
+    <TT>RENDER</TT> verwendet i.A. keine Stiftfarben bzw. Füllfarben und
+    -muster, sondern erwartet für die meisten Operationen geeignet
+    "vorbereitete" <TT>Picture</TT>s (z.B. ganzflächig mit einer Farbe gefüllt).
+   </LI>
+  </UL>
+  <P>
+   Core X <TT>Drawable</TT>s dienen als "Datenpuffer", die für <TT>RENDER</TT>
+   mit einem <TT>Picture</TT> assoziiert werden; die <TT>Picture</TT>-Struktur
+   bestimmt die "Interpretation" der im <TT>Drawable</TT> gespeicherten
+   Pixel<I>werte</I> als <I>Farb- und Alpha-Kanäle</I> (es ist also
+   theoretisch möglich - wenn auch nicht sehr sinnvoll - zwei <TT>Picture</TT>s
+   mit unterschiedlichem Farbformat demselben <TT>Drawable</TT> zuzuordnen,
+   vgl. Vorlesung).
+  </P>
+  
+  <H2>Koordinaten</H2>
+  <P>
+   Während alle Zeichenoperationen in Core X immer ganzzahlige
+   Pixel-Koordinaten verwenden, verwenden einige <TT>RENDER</TT>-Operationen
+   nicht-ganzzahlige Koordinaten; wenn dies der Fall ist, sind die
+   entsprechenden Parameter durch den Datentyp
+  </P>
+  <CODE>typedef int XFixed;</CODE>
+  <P>
+   dargestellt, wobei das 65536fache des repräsentierten Werts gespeichert
+   wird (d.h. "1.5" wird als "98304" gespeichert). Zur Konvertierung
+   können die Makros
+  </P>
+  <CODE>
+   #define XDoubleToFixed(f)    ((XFixed) ((f) * 65536))<BR>
+   #define XFixedToDouble(f)    (((XDouble) (f)) / 65536)
+  </CODE>
+  <P>
+   verwendet werden.
+  </P>
+  <H2><TT>Picture</TT>s erzeugen</H2>
+  <P>
+   Um mit einem gegebenen <TT>Drawable</TT> (<TT>Window</TT> oder <TT>Pixmap</TT>)
+   ein <TT>Picture</TT> zu verbinden wird der Aufruf
+  </P>
+  <CODE>
+   Picture XRenderCreatePicture (Display *dpy,<BR>
+   &nbsp;&nbsp;Drawable drawable,<BR>
+   &nbsp;&nbsp;const XRenderPictFormat *format,<BR>
+   &nbsp;&nbsp;unsigned long valuemask,<BR>
+   &nbsp;&nbsp;const XRenderPictureAttributes *attributes);
+  </CODE>
+  <P>
+   verwendet; dabei gibt <TT>format</TT> das gewünschte Format an
+   (Anordnung, Bittiefe der Farb- und Alphakanäle), <TT>valuemask</TT>
+   und <TT>attributes</TT> werden weiter <A HREF="#picture-attributes">unten</A> erläutert. Das Format
+   muss dabei zu der Bittiefe des <TT>Drawable</TT>s passen; wenn es
+   sich um ein Fenster handelt, findet sich das geeignete Format
+   am einfachsten über das dem Fenster zugeordnete Visual
+   (<A HREF="man:/usr/share/man/man3/XCreateWindow.3.gz"><TT>XCreateWindow(3)</TT></A>,
+   <A HREF="man:/usr/share/man/man3/DefaultVisual.3.gz"><TT>DefaultVisual(3)</TT></A>):
+  </P>
+  <CODE>
+  XRenderPictFormat *XRenderFindVisualFormat (Display *dpy,<BR>
+  &nbsp;&nbsp; const Visual *visual);
+  </CODE>
+  <P>
+   bzw. für Offscreen-Bilder erzeugt man sich eine <TT>Pixmap</TT> mit
+   geeigneter Tiefe für eines der folgenden Bildformate:
+  </P>
+  <CODE>
+   XRenderPictFormat *XRenderFindStandardFormat (Display *dpy,<BR>
+   &nbsp;&nbsp;int format);<BR>
+   #define PictStandardARGB32 0 /* 32 Bit */<BR>
+   #define PictStandardRGB24 1 /* 24 Bit */<BR>
+   #define PictStandardA8 2 /* 8 Bit */<BR>
+   #define PictStandardA1 4 /* 1 Bit */ <BR>
+  </CODE>
+  <P>
+   Die Bedeutung der Formate dürfte selbsterklärend sein. (Im Unterschied zu
+   Core X Drawing dürfen mehrere in einer Operation verwendete
+   <TT>Picture</TT>s unterschiedliche Bit-Tiefen und Formate haben;
+   notwendige Konvertierungen werden implizit bei Bedarf durchgeführt).
+  </P>
+  <P>
+   Wenn ein <TT>Picture</TT> an eine <TT>Pixmap</TT> gebunden ist, darf
+   die zugehörige <TT>Pixmap</TT> anschließend mit
+   <A HREF="man:/usr/share/man/man3/XFreePixmap.3.gz"><TT>XFreePixmap(3)</TT></A>
+   freigegeben werden (der Datenpuffer ist reference-counted und wird erst
+   dealloziert, wenn das <TT>Picture</TT> ebenfalls freigegeben wird).
+   Nicht mehr benötigte <TT>Picture</TT>s werden über
+  </P>
+  <CODE>
+   void XRenderFreePicture (Display *dpy,<BR>
+   &nbsp;&nbsp;Picture picture);
+  </CODE>
+  <P>
+   wieder freigegeben.
+  </P>
+  
+  <H3><TT>Picture</TT>-Attribute</H3><A NAME="picture-attributes" />
+  <P>
+   Attribute eines <TT>Picture</TT>s bestimmen das Verhalten von
+   Zeichen-Operationen, die das <TT>Picture</TT> verwenden; <TT>Picture</TT>s
+   können beim Zeichnen zwei Rollen erfüllen: "Ziel" oder "Quelle" von
+   Zeichen-Operationen, zu jedem der Attribute ist angemerkt
+   auf welche der beiden Rollen des <TT>Picture</TT>s es jeweils Einfluss
+   hat.
+  </P>
+  <P>
+   Attribute werden in der folgenden Datenstruktur beschrieben:
+  </P>
+  <CODE>
+   typedef struct _XRenderPictureAttributes {<BR>
+   &nbsp;&nbsp;int 		repeat; /* CPRepeat */ <BR>
+   &nbsp;&nbsp;Picture		alpha_map; /* CPAlphaMap */ <BR>
+   &nbsp;&nbsp;int			alpha_x_origin; /* CPAlphaXOrigin */<BR>
+   &nbsp;&nbsp;int			alpha_y_origin; /* CPAlphaYOrigin */<BR>
+   &nbsp;&nbsp;int			clip_x_origin; /* CPClipXOrigin */<BR>
+   &nbsp;&nbsp;int			clip_y_origin; /* CPClipYOrigin */<BR>
+   &nbsp;&nbsp;Pixmap		clip_mask; /* CPClipMask */<BR>
+   &nbsp;&nbsp;Bool		graphics_exposures; /* CPGraphicsExposure */<BR>
+   &nbsp;&nbsp;int			subwindow_mode; /* CPSubwindowMode */<BR>
+   &nbsp;&nbsp;int			poly_edge; /* CPPolyEdge */<BR>
+   &nbsp;&nbsp;int			poly_mode; /* CPPolyMode */<BR>
+   &nbsp;&nbsp;Atom		dither; /* CPDither */<BR>
+   &nbsp;&nbsp;Bool		component_alpha; /* CPComponentAlpha */<BR>
+   } XRenderPictureAttributes;
+  </CODE>
+  <P>
+   Zu jedem Attribut gehört dabei eine Konstante (oben als C-Kommentar
+   vermerkt), die angibt, ob das entsprechende Attribut "aktiv" ist;
+   z.B. erzeugt der folgende Aufruf:
+  </P>
+  <CODE>
+   XRenderPictureAttributes attr;<BR>
+   attr.repeat=RepeatNormal;<BR>
+   attr.poly_edge=PolyEdgeSmooth;<BR>
+   Picture *p=XRenderCreatePicture(display, window, format,<BR>
+   &nbsp;&nbsp;CPRepeat | CPPolyMode, &amp;attr);
+  </CODE>
+  <P>
+   ein <TT>Picture</TT> mit den angegebenen Attributen (während alle
+   anderen Attribute auf Vorgabe-Werten belassen werden). Ein nachträgliches
+   Ändern der Attribute ist möglich mit Hilfe von
+  </P>
+  <CODE>
+   void XRenderChangePicture (Display *dpy,<BR>
+   &nbsp;&nbsp;Picture				picture,<BR>
+   &nbsp;&nbsp;unsigned long			valuemask,<BR>
+   &nbsp;&nbsp;const XRenderPictureAttributes  *attributes);
+  </CODE>
+  <P>
+   Die Bedeutung ausgewählter Attribute:
+  </P>
+  <UL>
+   <LI>
+    <TT>repeat</TT> (Quelle): definiert, ob (und wie) das endliche
+    Bildrechteck in die unendliche Fläche fortgesetzt wird; folgende
+    Optionen sind möglich:
+    <UL>
+     <LI>
+      <TT>RepeatNone</TT>: keine Fortsetzung; für alle Bildpunkte außerhalb
+      des Bildrechtecks wird "transparentes schwarz" angenommen; dies
+      ist der Vorgabewert
+     </LI>
+     <LI>
+      <TT>RepeatNormal</TT>: eine unendliche Fläche, die sich aus der
+      "Kachelung" des (endlichen) Bildrechtecks ergibt; typischerweise verwendet
+      man als "einfarbigen Stift" ein 1x1 Pixel großes <TT>Picture</TT>
+      mit <TT>repeat=RepeatNormal</TT>
+     </LI>
+     <LI>
+      <TT>RepeatNormal</TT>: jedes Pixel außerhalb des Bildrechtecks entspricht
+      dem Wert des nächstliegenden Randpixels
+     </LI>
+     <LI>
+      <TT>RepeatReflect</TT>: ähnlich wie <TT>RepeatNormal</TT>, jedoch
+      ist jede "Kachel" das Spiegelbild jeder Nachbarkachel entlang
+      der gemeinsamen Kante
+     </LI>
+    </UL>
+   <LI>
+    <TT>poly_edge</TT> (Ziel): bestimmt, ob bei Zeichenoperationen
+    (Dreiecke, Trapeze; siehe unten) Teilüberdeckung
+    von Pixeln beachtet wird, oder nicht ("Anti-Aliasing"):
+    <UL>
+     <LI>
+      <TT>PolyEdgeSharp</TT>: keine Teilüberdeckung; ein Pixel ist von einer
+      Zeichenoperation vollständig betroffen, oder gar nicht; dies
+      ist der Vorgabewert
+     </LI>
+     <LI>
+      <TT>PolyEdgeSmooth</TT>: Teilüberdeckung von Pixeln, wird als
+      "Alpha"-Maske für Zeichenoperation interpretiert; im allgemeinen
+      wollen wir dies, da es den eigentlichen "Sinn" der <TT>RENDER</TT>-Extension
+      ausmacht :)
+     </LI>
+    </UL>
+   </LI>
+   <LI>
+    <TT>poly_mode</TT> (Ziel): bestimmt, ob bei Zeichenoperationen
+    (Dreiecke, Trapeze; siehe unten) "Genauigkeit" oder "Geschwindigkeit"
+    bevorzugt werden
+    <UL>
+     <LI>
+      <TT>PolyModePrecise</TT>: Genauigkeit, Vorgabewert
+     </LI>
+     <LI>
+      <TT>PolyModeImprecise</TT>: Geschwindigkeit
+     </LI>
+    </UL>
+    (Anmerkung: scheint in existierender Implementierung wirkungslos zu sein)
+   </LI>
+  </UL>
+  <H2>Farbige Rechtecke zeichnen</H2>
+  <P>
+   Der Aufruf
+  </P>
+  <CODE>
+   void XRenderFillRectangle (Display		    *dpy,<BR>
+   &nbsp;&nbsp;int		    op,<BR>
+   &nbsp;&nbsp;Picture		    dst,<BR>
+   &nbsp;&nbsp;const XRenderColor  *color,<BR>
+   &nbsp;&nbsp;int		    x,<BR>
+   &nbsp;&nbsp;int		    y,<BR>
+   &nbsp;&nbsp;unsigned int	    width,<BR>
+   &nbsp;&nbsp;unsigned int	    height);
+  </CODE>
+  <P>
+   verknüpft den gegebenen rechteckigen Bereich des Ziel-<TT>Picture</TT>s
+   <TT>dst</TT> unter Verwendung des Operators <TT>op</TT> (vgl.
+   Vorlesung) Pixelweise mit der Farbe <TT>color</TT>. Um definierte
+   Farbwerte in ein <TT>Picture</TT> zu schreiben empfiehlt sich der
+   Operator <TT>PictOpSrc</TT> (Erläuterung siehe unten):
+  </P>
+  <CODE>
+   XRenderColor color={.red=0, .green=0, .blue=0x8000, .alpha=0x8000};<BR>
+   XRenderFillRectangle(display, PictOpSrc, picture, &amp;color, 0, 0, 1, 1);
+  </CODE>
+  <P>
+   füllt das Pixel in der linken oberen Ecke mit einem halbtransparenten
+   Blau (beachte dass Farbkanalwerte mit 16 Bit Präzision angegeben werden).
+   Diese Methode ist geeignet, um einfarbige <TT>Picture</TT>s als
+   "farbige Stifte" für weitere Operationen zu erzeugen.
+  </P>
+  
+  <H2>Allgemeines Compositing</H2>
+  <P>
+   Der Aufruf
+  </P>
+  <CODE>
+   void
+   XRenderComposite (Display   *dpy, int	    op,<BR>
+   &nbsp;&nbsp;Picture   src, Picture   mask, Picture   dst,<BR>
+   &nbsp;&nbsp;int	    src_x, int	    src_y,<BR>
+   &nbsp;&nbsp;int	    mask_x, int	    mask_y,<BR>
+   &nbsp;&nbsp;int	    dst_x, int	    dst_y,<BR>
+   &nbsp;&nbsp;unsigned int	width, unsigned int	height);
+  </CODE>
+  <P>
+   berechnet für den durch <TT>dst_x,dst_y</TT> und <TT>width,height</TT>
+   Bereich:
+  </P>
+  <P><TT>dst:=dst <I>OP</I> (src IN mask)</TT></P>
+  <P>(bzw.</P>
+  <P><TT>dst:=dst <I>OP</I> src</TT></P>
+  <P>
+   falls <TT>maske=0</TT>), wobei entsprechende Ausschnitte aus <TT>src</TT>
+   (und ggf. <TT>mask</TT>) verwendet werden.
+  </P>
+  <P>
+   Der Parameter <TT>op</TT> definiert den zu verwendenden Compositing-Operator;
+   der häufigste verwendete Operator ist dabei <TT>OVER</TT> (angegeben durch
+   die Konstante <TT>PictOpOver</TT>), so dass das Bild <TT>src</TT>
+   das Bild <TT>dst</TT> überdeckt; weitere mögliche Compositing-Operatoren sind:
+  </P>
+  <CODE>
+   #define PictOpClear			    0<BR>
+   #define PictOpSrc			    1<BR>
+   #define PictOpDst			    2<BR>
+   #define PictOpOver			    3<BR>
+   #define PictOpOverReverse		    4<BR>
+   #define PictOpIn			    5<BR>
+   #define PictOpInReverse			    6<BR>
+   #define PictOpOut			    7<BR>
+   #define PictOpOutReverse		    8<BR>
+   #define PictOpAtop			    9<BR>
+   #define PictOpAtopReverse		    10<BR>
+   #define PictOpXor			    11<BR>
+   #define PictOpAdd			    12<BR>
+   #define PictOpSaturate			    13<BR>
+  </CODE>
+  <P>
+   sowie <TT>Conjoint</TT>- und <TT>Disjoint</TT>-Varianten dieser Operatoren (z.B.
+   <TT>PictOpDisjointOver</TT>), vgl. Vorlesung.
+  </P>
+  
+  <H2>Compositing mit impliziter Maske (Geometrische Primitiven)</H2>
+  <P>
+   Die beiden Funktionen
+  </P>
+  <CODE>
+   void XRenderCompositeTrapezoids (Display		*dpy, int			op,<BR>
+   &nbsp;&nbsp;Picture		src, Picture		dst,<BR>
+   &nbsp;&nbsp;const XRenderPictFormat	*maskFormat,<BR>
+   &nbsp;&nbsp;int			xSrc, int			ySrc,<BR>
+   &nbsp;&nbsp;const XTrapezoid	*traps, int			ntrap);<BR>
+   <BR>
+   void XRenderCompositeTriangles (Display		*dpy, int			op,<BR>
+   &nbsp;&nbsp;Picture		src, Picture		dst,<BR>
+   &nbsp;&nbsp;const XRenderPictFormat	*maskFormat,<BR>
+   &nbsp;&nbsp;int			xSrc, int			ySrc,<BR>
+   &nbsp;&nbsp;const XTriangle	*triangles, int			ntriangle);
+  </CODE>
+  <P>
+   können verwendet werden, um Dreiecke bzw. Trapeze als geometrische Primitiven
+   zu "zeichnen": durch die zu zeichnenden Figuren wird eine Alpha-Maske
+   definiert (vollständig überdeckend im Inneren der Figuren, vollständig transparent
+   außerhalb), so dass formal jedes Pixel des Ziel-<TT>Picture</TT>s durch
+  </P>
+  <P><TT>dst:=dst <I>OP</I> (src IN mask)</TT></P>
+  <P>
+   bestimmt ist. In Abhängigkeit des <TT>poly_edge</TT>-Attributes von <TT>dst</TT> ist die
+   verwendete Maske entweder "scharf" (d.h. enthält nur 0 oder 1) oder "kantengeglättet" (d.h.
+   enthält Werte zwischen 0 und 1 für teilweise überdeckte Pixel). Wenn der
+   übergebene Parameter <TT>maskFormat=0</TT> ist, dann wird jedes Dreieck bzw.
+   Trapez einzeln auf das Ziel-<TT>Picture</TT> kompositiert; wenn <TT>maskFormat!=NULL</TT>,
+   dann wird zunächst eine temporäre Maske im gewählten Format erzeugt und anschließend
+   eine einzige Compositing-Operation durchgeführt. Die Form der Trapezoide/Dreiecke
+   ist dabei in folgenden Datenstrukturen definiert:
+  </P>
+  <CODE>
+   typedef struct _XPointFixed {<BR>
+   &nbsp;&nbsp;XFixed  x, y;<BR>
+   } XPointFixed;<BR>
+   <BR>
+   typedef struct _XLineFixed {<BR>
+   &nbsp;&nbsp;XPointFixed p1, p2;<BR>
+   } XLineFixed;<BR>
+   <BR>
+   typedef struct _XTriangle {<BR>
+   &nbsp;&nbsp;XPointFixed	p1, p2, p3;<BR>
+   } XTriangle;<BR>
+   <BR>
+   typedef struct _XTrapezoid {<BR>
+   &nbsp;&nbsp;XFixed  top, bottom;<BR>
+   &nbsp;&nbsp;XLineFixed	left, right;<BR>
+   } XTrapezoid;<BR>
+  </CODE>
+  <P>
+   Ein Dreieck ist dabei durch seine drei Eckpunkte definiert; Trapezoide sind definiert durch
+   eine "linke" und "rechte" Begrenzungsgeraden (die beliebige Steigung haben dürfen, definiert
+   durch zwei Punkte auf der geraden) sowie
+   eine "obere" und "untere" Begrenzungsgerade (immer parallel zur x-Achse, definiert durch
+   die y-Koordinate in <TT>top</TT> bzw. <TT>bottom</TT>).
+  </P>
+  <P>
+   (<TT>xSrc</TT>,<TT>ySrc</TT>) definiert den Punkt im Ziel-<TT>Picture</TT> <TT>dst</TT>,
+   an dem der Ursprung des Quell-<TT>Picture</TT>s <TT>src</TT> positioniert wird (das zu
+   zeichnende Muster wird also ggf. verschoben).
+  </P>
+  <P>
+   Einfarbige geometrische Primitive lassen sich also Zeichnen, indem
+  </P>
+  <UL>
+   <LI>
+    ein einfarbiges <TT>Picture</TT> mit <TT>repeat=RepeatNormal</TT> als "Stiftfarbe" erzeugt wird;
+    dieses wird als <TT>src</TT> für <TT>XRenderCompositeTrapezoids</TT> bzw.
+    <TT>XRenderCompositeTriangles</TT> verwendet
+   </LI>
+   <LI>
+    zum Compositing der Operator <TT>PictOpOver</TT> benutzt wird; dieser "überzeichnet" das
+    Zielbild mit Dreiecken/Trapezen
+   </LI>
+  </UL>
+  
+  <H2>Affine Transformationen</H2>
+  <P>
+   Einem <TT>Picture</TT> kann eine Transformationsmatrix zugeordnet werden; diese bestimmt
+   die "Verzerrung" des <TT>Picture</TT>s, wenn es als Quellbild in Compositing-Operationen
+   werwendet wird:
+  </P>
+  <CODE>
+   typedef struct _XTransform {<BR>
+   &nbsp;&nbsp;XFixed  matrix[3][3];<BR>
+   } XTransform;<BR>
+   <BR>
+   void XRenderSetPictureTransform (Display	    *dpy,
+			    Picture	    picture,
+			    XTransform	    *transform);
+  </CODE>
+  <P>
+   Die 3x3 Matrix wird als Transformation für das 2-dimensionale Bild in demselben
+   Sinne verwendet mit 4x4 Matrizen in OpenGL 3-dimensionale Koordinaten transformieren.
+   Infolge einer Transformation müssen  gegebenenfalls Punkte des Bildes interpoliert werden;
+   die Auswahl des gewünschten (Interpolations-)filters erfolgt mit Hilfe von
+  </P>
+  <CODE>
+   XFilters *XRenderQueryFilters (Display *dpy, Drawable drawable);<BR>
+   <BR>
+   void XRenderSetPictureFilter (Display    *dpy, Picture    picture,<BR>
+   &nbsp;&nbsp;char *filter, XFixed	    *params, int	    nparams);
+  </CODE>
+  <P>
+   Verfügbare Filter sind u.a. <TT>"nearest"</TT> und <TT>"bilinear"</TT> (diese erhalten
+   keine Parameter, d.h. <TT>params=0</TT> und <TT>nparams=0</TT>).
+  </P>
+
+  <H2>Schriftzeichen und <TT>RENDER</TT> </H2>
+  <P>
+   Schriftzeichen lassen sich unter Verwendung von <TT>RENDER</TT> im Prinzip setzen, indem
+  </P>
+  <UL>
+   <LI>
+    jedes Schriftzeichen als Alpha-Maske (z.B. <TT>Picture</TT> im Format <TT>PictStandardA8</TT>)
+    abgespeichert wird
+   </LI>
+   <LI>
+    ein einfarbiges <TT>Picture</TT> mit <TT>repeat=RepeatNormal</TT> als "Stiftfarbe" erzeugt wird
+   </LI>
+   <LI>
+    mittels <TT>XRenderComposite</TT> jedes Schriftzeichen auf die Zielfläche gezeichnet wird
+   </LI>
+  </UL>
+  <P>
+   Diese prinzipiell denkbare vorgehensweise hat den Nachteil eines erheblichen Overheads
+   (Repräsentation jedes einzelnen Zeichens als <TT>Picture</TT>, Codierung eines
+   <TT>Composite</TT>-Requests mit allen Parametern für jedes einzelne Zeichen).
+   Da Text ein häufiges graphisches Element ist, reduziert <TT>RENDER</TT> diesen
+   Overhead in folgender Weise:
+  </P>
+  <UL>
+   <LI>
+    Schriftzeichen werden nicht als "einzelne" <TT>Picture</TT>s repräsentiert sondern
+    in so genannten <TT>GlyphSet</TT>s gruppiert
+   </LI>
+   <LI>
+    Mit einem einzelnen Request wird gleich eine ganze Gruppe von Zeichen kompositiert;
+    nur die Position des ersten Zeichens wird explizit angegeben, die Position nachfolgender
+    Zeichen ergeben sich aus einer im <TT>GlyphSet</TT> zu jedem Zeichen gespeicherten 
+    relativen Versatz.
+   </LI>
+  </UL>
+  <H3>Verwaltung von <TT>GlyphSet</TT>s</H3>
+  <P>
+   Ein Glyphset wird erzeugt mittels
+  </P>
+  <CODE>
+   GlyphSet XRenderCreateGlyphSet (Display *dpy, const XRenderPictFormat *format);
+  </CODE>
+  <P>
+   <TT>format</TT> gibt das für jedes Schriftzeichen zu verwendende Darstellungsformat an. Wenn
+   es nicht länger benötigt wird, wird ein <TT>GlyphSet</TT> mittels
+  </P>
+  <CODE>
+   void XRenderFreeGlyphSet (Display *dpy, GlyphSet gs);
+  </CODE>
+  <P>
+   freigegeben. Der Aufruf
+  </P>
+  <CODE>
+   void XRenderAddGlyphs (Display		*dpy,  GlyphSet		glyphset,<BR>
+   &nbsp;&nbsp;const Glyph gids[], const XGlyphInfo	glyphs[], int nglyphs,<BR>
+   &nbsp;&nbsp;const char *images, int nbyte_images);
+  </CODE>
+  <P>
+   fügt eine Anzahl <TT>nglyphs</TT> von Schriftzeichen zu einem erzeugten Glyphset hinzu.
+   Zu jedem Schriftzeichen sind dabei folgende Parameter notwendig:
+  </P>
+  <UL>
+   <LI>
+    Den "Index" der Glyphe (im array <TT>gids</TT>); kann von der Applikation nach
+    Belieben gewählt werden, wird aber gewöhnlich korrespondierend zur Codierung
+    des Zeichens in z.B. ASCII oder UCS-4 gewählt
+   </LI>
+   <LI>
+    <P>
+     Eine Beschreibung in folgender Datenstruktur:
+    </P>
+    <CODE>
+     typedef struct _XGlyphInfo {
+     &nbsp;&nbsp;unsigned short  width;
+     &nbsp;&nbsp;unsigned short  height;
+     &nbsp;&nbsp;short	    x;
+     &nbsp;&nbsp;short	    y;
+     &nbsp;&nbsp;short	    xOff;
+     &nbsp;&nbsp;short	    yOff;
+     } XGlyphInfo;
+    </CODE>
+    <P>
+     wobei
+    </P>
+    <UL>
+     <LI>
+      <TT>width</TT> und <TT>height</TT> die Größe der Alpha-Maske in Pixeln angeben
+     </LI>
+     <LI>
+      <TT>x</TT> und <TT>y</TT> die "Referenzposition" innerhalb des Pixels bezeichnen
+      (d.h. denjenigen Punkt innerhalb der Alpha-Maske, der an die aktuelle
+      Zeichenposition gezeichnet wird)
+     </LI>
+     <LI>
+      <TT>xOff</TT> und <TT>yOff</TT> den Versatz zum nächsten Zeichen
+      angeben (d.h. den Vektor um den die aktuelle Zeichenposition nach
+      Zeichnen dieses Zeichens verschoben wird)
+     </LI>
+    </UL>
+   </LI>
+   <LI>
+    Die Alpha-Maske in <TT>images</TT>; die Alpha-Masken jedes einzelnes Zeichens
+    werden als Bitmaps codiert (d.h. je nach Format mit jeweils z.B. 1 oder 8 Bit
+    pro Pixel); <TT>images</TT> enthält dabei nacheinander die Daten für alle
+    zu übertragenden Zeichen, jedes Zeichen wird zeilenweise übertragen (mit
+    der in der <TT>XGlyphInfo</TT>-Struktur angegebenen Anzahl an Zeilen),
+    und jede Zeile enthält die Pixel-Werte einer Zeile (mit der in der
+    <TT>XGlyphInfo</TT>-Struktur angegebenen Anzahl an Pixeln pro Zeile;
+    jede Zeile wird aber immer auf ein Vielfaches von 32 Bit aufgerundet).
+   </LI>
+  </UL>
+  
+  <H3>Rendering von Schriftzeichen</H3>
+  <P>
+   Das Zeichnen von Glyphen erfolgt z.B. mit Hilfe der Aufrufe
+  </P>
+  <CODE>
+   void XRenderCompositeString8 (Display *dpy, int op,<BR>
+   &nbsp;&nbsp;Picture		    src, Picture		    dst,<BR>
+   &nbsp;&nbsp;const XRenderPictFormat  *maskFormat,<BR>
+   &nbsp;&nbsp;GlyphSet		    glyphset,<BR>
+   &nbsp;&nbsp;int			    xSrc, int			    ySrc,<BR>
+   &nbsp;&nbsp;int			    xDst, int			    yDst,<BR>
+   &nbsp;&nbsp;const char		    *string, int			    nchar);<BR>
+   <BR>
+   void XRenderCompositeString16 (Display *dpy, int op,<BR>
+   &nbsp;&nbsp;Picture		    src, Picture		    dst,<BR>
+   &nbsp;&nbsp;const XRenderPictFormat  *maskFormat,<BR>
+   &nbsp;&nbsp;GlyphSet		    glyphset,<BR>
+   &nbsp;&nbsp;int			    xSrc, int			    ySrc,<BR>
+   &nbsp;&nbsp;int			    xDst, int			    yDst,<BR>
+   &nbsp;&nbsp;const unsigned short	    *string, int			    nchar);<BR>
+   <BR>
+   void XRenderCompositeString32 (Display *dpy, int op,<BR>
+   &nbsp;&nbsp;Picture		    src, Picture		    dst,<BR>
+   &nbsp;&nbsp;const XRenderPictFormat  *maskFormat,<BR>
+   &nbsp;&nbsp;GlyphSet		    glyphset,<BR>
+   &nbsp;&nbsp;int			    xSrc, int			    ySrc,<BR>
+   &nbsp;&nbsp;int			    xDst, int			    yDst,<BR>
+   &nbsp;&nbsp;const unsigned int *string, int			    nchar);<BR>
+  </CODE>
+  <P>
+   Die Aufrufe unterscheiden sich nur durch die Codierung der einzelnen Schriftzeichen
+   (jeweils als 8-, 16- oder 32-Bit-Zahl). Jedes einzelne Schriftzeichen referenziert
+   die unter dem entsprechenden Index im <TT>glyphset</TT> abgelegte Alpha-Maske.
+  </P>
+  <P>
+   Ist <TT>maskFormat</TT> gegeben, dann werden - analog zu <TT>XRenderCompositeTriangles</TT>
+   bzw. <TT>XRenderCompositeTrapezoids</TT> - zunächst alle Schriftzeichen in ein
+   temporäres Maskenbild im entsprechenden Format kompositiert, und anschließend dieses Maske für eine einzelne
+   Compositing-Operation auf das Ziel-<TT>Picture</TT> verwendet; andernfalls wird
+   jedes Schiftzeichen einzeln auf das Ziel-<TT>Picture</TT> abgebildet (Unterschiede
+   ergeben sich, wenn Schriftzeichen überlappen).
+  </P>
+  <P>
+   Das erste Schriftzeichen wird mit seiner Referenz-Position an der Zeichenposition
+   <TT>xDst</TT>,<TT>yDst</TT> platziert; anschließend wird die Zeichenposition gemäß dem
+   im <TT>glyphset</TT> für das erste Zeichen gespeicherten Versatz verschoben und
+   das nächste Zeichen gezeichnet.
+  </P>
+  <P>
+   Die Funktionsweise ist in allen anderen Belangen analog zu <TT>XRenderComposite</TT>.
+  </P>
+
+ </BODY>
+</HTML>
